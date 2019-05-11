@@ -160,12 +160,12 @@ export default function ({types: t}) {
         messages.set(id, {id, description, defaultMessage, ...loc});
     }
 
-    function referencesImport(path, mod, importedNames) {
+    function referencesImport(path, importedNames) {
         if (!(path.isIdentifier() || path.isJSXIdentifier())) {
             return false;
         }
 
-        return importedNames.some((name) => path.referencesImport(mod, name));
+        return importedNames.some((name) => t.isIdentifier(path.node, { name }));
     }
 
     function tagAsExtracted(path) {
@@ -276,7 +276,6 @@ export default function ({types: t}) {
             },
 
             CallExpression(path, state) {
-                const moduleSourceName = getModuleSourceName(state.opts);
                 const callee = path.get('callee');
 
                 function assertObjectExpression(node) {
@@ -326,10 +325,36 @@ export default function ({types: t}) {
                     tagAsExtracted(messageObj);
                 }
 
-                if (referencesImport(callee, moduleSourceName, FUNCTION_NAMES)) {
-                    const messagesObj = path.get('arguments')[0];
+                if (referencesImport(callee, FUNCTION_NAMES)) {
+                    const messagesObj = path.get('arguments')[1];
+                    const scope = getMessageDescriptorValue(path.get('arguments')[0]);
 
                     assertObjectExpression(messagesObj);
+
+                    const properties = messagesObj.get('properties')
+                        .map((prop) => {
+                            const value = prop.get('value');
+                            const description = value.node.value;
+                            const id = `${scope}.${prop.node.key.name}`;
+
+                            const parsed = t.objectProperty(
+                                t.stringLiteral(id),
+                                t.objectExpression([
+                                    t.objectProperty(
+                                        t.stringLiteral('id'),
+                                        t.stringLiteral(id)
+                                    ),
+                                    t.objectProperty(
+                                        t.stringLiteral('defaultMessage'),
+                                        t.stringLiteral(description)
+                                    ),
+                                ])
+                            );
+
+                            return parsed;
+                        });
+
+                    messagesObj.replaceWith(t.objectExpression(properties));
 
                     messagesObj.get('properties')
                         .map((prop) => prop.get('value'))
